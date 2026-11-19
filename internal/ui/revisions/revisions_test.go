@@ -342,6 +342,26 @@ func TestModel_JumpToParentStreamsUntilParentIsLoaded(t *testing.T) {
 	assert.Nil(t, model.pendingSeek)
 }
 
+func TestModel_NavigateToChangeIDStreamsUntilLoaded(t *testing.T) {
+	commandRunner := test.NewTestCommandRunner(t)
+	commandRunner.Expect(jj.ResolveRevisionID("full-change")).SetOutput([]byte("b;9"))
+	defer commandRunner.Verify()
+
+	ctx := test.NewTestContext(commandRunner)
+	model := New(ctx)
+	model.updateGraphRows(rows[:1], "a", true)
+	model.offScreenRows = slices.Clone(rows[:1])
+	model.hasMore = true
+	model.streamer = &graph.GraphStreamer{}
+
+	cmd := model.Update(intents.Navigate{ChangeID: "full-change"})
+	assert.NotNil(t, cmd, "should request more rows when the revision is not loaded yet")
+	assert.Equal(t, 0, model.Cursor())
+
+	model.Update(appendRowsBatchMsg{rows: rows[1:], hasMore: false})
+	assert.Equal(t, 1, model.Cursor())
+}
+
 func TestModel_UpdateRevisionsPreservesEvologSelection(t *testing.T) {
 	ctx := test.NewTestContext(test.NewTestCommandRunner(t))
 	model := New(ctx)

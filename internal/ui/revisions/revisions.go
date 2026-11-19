@@ -1087,16 +1087,12 @@ func (m *Model) navigate(intent intents.Navigate) tea.Cmd {
 	}
 
 	if intent.ChangeID != "" {
-		idx := m.selectRevisionExact(intent.ChangeID)
-		if idx == -1 {
-			idx = m.resolveNavigationRevision(intent.ChangeID)
-		}
-		if idx == -1 {
-			return nil
+		revision := intent.ChangeID
+		if m.selectRevisionExact(revision) == -1 {
+			revision = m.resolveNavigationRevision(revision)
 		}
 		m.ensureCursorView = ensureView
-		m.SetCursor(idx)
-		return nil
+		return m.selectOrSeek(revision)
 	}
 
 	switch intent.Target {
@@ -1161,19 +1157,15 @@ func (m *Model) navigate(intent intents.Navigate) tea.Cmd {
 	return nil
 }
 
-func (m *Model) resolveNavigationRevision(revision string) int {
+// resolveNavigationRevision asks jj for the change id behind a revset expression.
+// It returns "" when the revset does not resolve.
+func (m *Model) resolveNavigationRevision(revision string) string {
 	output, err := m.context.RunCommandImmediate(jj.ResolveRevisionID(revision))
 	if err != nil {
-		return -1
+		return ""
 	}
-
-	parts := strings.SplitN(string(output), ";", 2)
-	for _, candidate := range parts {
-		if idx := m.selectRevisionExact(strings.TrimSpace(candidate)); idx != -1 {
-			return idx
-		}
-	}
-	return -1
+	changeID, _, _ := strings.Cut(string(output), ";")
+	return strings.TrimSpace(changeID)
 }
 
 func (m *Model) startDescribe(intent intents.Describe) tea.Cmd {
