@@ -1472,12 +1472,7 @@ func (m *Model) GetCommitIds() []string {
 // RevealRevision is used in the bookmark pane to reveal the revision
 // associated with a bookmark in the revision list
 func (m *Model) RevealRevision(revision string) tea.Cmd {
-	index := m.selectRevisionExact(revision)
-	if index < 0 {
-		return nil
-	}
-	m.SetCursor(index)
-	return nil
+	return m.selectOrSeek(revision)
 }
 
 func New(c *appContext.MainContext) *Model {

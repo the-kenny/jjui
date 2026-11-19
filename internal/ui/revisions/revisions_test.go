@@ -379,6 +379,22 @@ func TestModel_JumpToWorkingCopyStreamsUntilLoaded(t *testing.T) {
 	assert.Equal(t, 1, model.Cursor())
 }
 
+func TestModel_RevealRevisionStreamsUntilLoaded(t *testing.T) {
+	ctx := test.NewTestContext(test.NewTestCommandRunner(t))
+	model := New(ctx)
+	model.updateGraphRows(rows[:1], "a", true)
+	model.offScreenRows = slices.Clone(rows[:1])
+	model.hasMore = true
+	model.streamer = &graph.GraphStreamer{}
+
+	cmd := model.RevealRevision("9")
+	assert.NotNil(t, cmd, "should request more rows when the revision is not loaded yet")
+	assert.Equal(t, 0, model.Cursor())
+
+	model.Update(appendRowsBatchMsg{rows: rows[1:], hasMore: false})
+	assert.Equal(t, 1, model.Cursor())
+}
+
 func TestModel_UpdateRevisionsPreservesEvologSelection(t *testing.T) {
 	ctx := test.NewTestContext(test.NewTestCommandRunner(t))
 	model := New(ctx)
