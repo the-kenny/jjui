@@ -1101,11 +1101,9 @@ func (m *Model) navigate(intent intents.Navigate) tea.Cmd {
 		m.ensureCursorView = ensureView
 		return cmd
 	case intents.TargetWorkingCopy:
-		if idx := m.selectRevisionExact("@"); idx != -1 {
-			m.SetCursor(idx)
-		}
+		cmd := m.selectOrSeek("@")
 		m.ensureCursorView = ensureView
-		return nil
+		return cmd
 	case intents.TargetChild:
 		immediate, _ := m.context.RunCommandImmediate(jj.GetFirstChild(m.SelectedRevision()))
 		if idx := m.selectRevisionExact(string(immediate)); idx != -1 {

@@ -362,6 +362,23 @@ func TestModel_NavigateToChangeIDStreamsUntilLoaded(t *testing.T) {
 	assert.Equal(t, 1, model.Cursor())
 }
 
+func TestModel_JumpToWorkingCopyStreamsUntilLoaded(t *testing.T) {
+	ctx := test.NewTestContext(test.NewTestCommandRunner(t))
+	model := New(ctx)
+	model.updateGraphRows(rows[:1], "a", true)
+	model.offScreenRows = slices.Clone(rows[:1])
+	model.hasMore = true
+	model.streamer = &graph.GraphStreamer{}
+
+	cmd := model.Update(intents.Navigate{Target: intents.TargetWorkingCopy})
+	assert.NotNil(t, cmd, "should request more rows when @ is not loaded yet")
+	assert.Equal(t, 0, model.Cursor())
+
+	workingCopy := parser.Row{Commit: &jj.Commit{ChangeId: "w", CommitId: "7", IsWorkingCopy: true}}
+	model.Update(appendRowsBatchMsg{rows: []parser.Row{workingCopy}, hasMore: false})
+	assert.Equal(t, 1, model.Cursor())
+}
+
 func TestModel_UpdateRevisionsPreservesEvologSelection(t *testing.T) {
 	ctx := test.NewTestContext(test.NewTestCommandRunner(t))
 	model := New(ctx)
