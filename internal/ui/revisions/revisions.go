@@ -548,9 +548,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		return m.popLayer()
 	case common.QuickSearchMsg:
 		m.quickSearch = strings.ToLower(string(msg))
-		m.SetCursor(m.search(0, false))
+		cmd := m.quickSearchFrom(0, false)
 		m.resetOperations()
-		return nil
+		return cmd
 	case common.CommandCompletedMsg:
 		m.output = msg.Output
 		m.err = msg.Err
@@ -871,8 +871,7 @@ func (m *Model) HandleIntent(intent intents.Intent) (tea.Cmd, bool) {
 		if intent.Reverse {
 			offset = -1
 		}
-		m.SetCursor(m.search(m.cursor+offset, intent.Reverse))
-		return nil, true
+		return m.quickSearchFrom(m.cursor+offset, intent.Reverse), true
 	case intents.RevisionsQuickSearchClear:
 		m.quickSearch = ""
 		return nil, true
@@ -1446,6 +1445,31 @@ func (m *Model) selectRevisionExact(revision string) int {
 			return row.Commit.IsWorkingCopy
 		}
 		return eqFold(row.Commit.GetChangeId()) || eqFold(row.Commit.ChangeId) || eqFold(row.Commit.CommitId)
+	})
+}
+
+// quickSearchFrom moves the cursor to the next row matching the quick search,
+// wrapping around only once every row is loaded.
+func (m *Model) quickSearchFrom(start int, backward bool) tea.Cmd {
+	if m.quickSearch == "" {
+		return nil
+	}
+	return m.seekRow(func(more bool) (tea.Cmd, bool) {
+		if !more {
+			m.SetCursor(m.search(start, backward))
+			return nil, true
+		}
+		delta := 1
+		if backward {
+			delta = -1
+		}
+		for i := start; i >= 0 && i < len(m.rows); i += delta {
+			if common.MatchesQuery(&m.rows[i], m.quickSearch) {
+				m.SetCursor(i)
+				return nil, true
+			}
+		}
+		return nil, false
 	})
 }
 

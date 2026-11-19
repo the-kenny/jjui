@@ -9,6 +9,7 @@ import (
 	"github.com/idursun/jjui/internal/parser"
 	"github.com/idursun/jjui/internal/screen"
 	"github.com/idursun/jjui/internal/ui/common"
+	"github.com/idursun/jjui/internal/ui/context"
 	"github.com/idursun/jjui/internal/ui/graph"
 	"github.com/idursun/jjui/internal/ui/intents"
 	"github.com/idursun/jjui/internal/ui/layout"
@@ -164,6 +165,31 @@ func TestModel_Navigate(t *testing.T) {
 	assert.Equal(t, "b", model.SelectedRevision().ChangeId)
 	test.SimulateModel(model, model.Update(intents.Navigate{Delta: -1}))
 	assert.Equal(t, "a", model.SelectedRevision().ChangeId)
+}
+
+// newStreamingModel returns a model with only rows[0] loaded and more rows pending.
+func newStreamingModel(ctx *context.MainContext) *Model {
+	model := New(ctx)
+	model.updateGraphRows(rows[:1], "a", true)
+	model.offScreenRows = slices.Clone(rows[:1]) // the batch handler appends; keep the shared fixture intact
+	model.hasMore = true
+	model.streamer = &graph.GraphStreamer{}
+	return model
+}
+
+func TestModel_QuickSearchStreamsUntilMatchIsLoaded(t *testing.T) {
+	model := newStreamingModel(test.NewTestContext(test.NewTestCommandRunner(t)))
+
+	cmd := model.Update(common.QuickSearchMsg("b"))
+	assert.NotNil(t, cmd, "should request more rows when no loaded row matches")
+	assert.Equal(t, 0, model.Cursor())
+
+	model.Update(appendRowsBatchMsg{rows: rows[1:], hasMore: false})
+	assert.Equal(t, 1, model.Cursor(), "cursor should land on the match once it is streamed in")
+
+	cmd = model.Update(intents.QuickSearchCycle{})
+	assert.Nil(t, cmd)
+	assert.Equal(t, 1, model.Cursor(), "fully loaded search wraps around to the only match")
 }
 
 func TestModel_GoToTopAndBottom(t *testing.T) {
