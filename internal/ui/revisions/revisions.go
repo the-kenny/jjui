@@ -54,9 +54,12 @@ var (
 )
 
 type Model struct {
-	rows                   []parser.Row
-	tag                    atomic.Uint64
-	pendingReload          revisionReloadState
+	rows          []parser.Row
+	tag           atomic.Uint64
+	pendingReload revisionReloadState
+	// pendingSeek is a cursor move that ran past the loaded rows; it runs
+	// again after each batch.
+	pendingSeek            func(more bool) (tea.Cmd, bool)
 	offScreenRows          []parser.Row
 	streamer               *graph.GraphStreamer
 	hasMore                bool
@@ -698,6 +701,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		if cmd := m.operationSelectionChanged(currentSelectedRevision); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if m.pendingSeek != nil {
+			cmds = append(cmds, m.seekRow(m.pendingSeek))
+		}
 		return tea.Batch(cmds...)
 	}
 
@@ -891,6 +897,7 @@ func (m *Model) refresh(intent intents.Refresh) tea.Cmd {
 		m.clearCheckedRevisions()
 	}
 	m.isLoading = true
+	m.pendingSeek = nil
 	currentTag := m.tag.Add(1)
 	m.pendingReload = revisionReloadState{
 		tag:              currentTag,
@@ -1065,6 +1072,7 @@ func (m *Model) goToBottom() tea.Cmd {
 }
 
 func (m *Model) navigate(intent intents.Navigate) tea.Cmd {
+	m.pendingSeek = nil
 	if len(m.rows) == 0 {
 		return nil
 	}
@@ -1093,9 +1101,9 @@ func (m *Model) navigate(intent intents.Navigate) tea.Cmd {
 
 	switch intent.Target {
 	case intents.TargetParent:
-		m.jumpToParent(m.SelectedRevisions())
+		cmd := m.jumpToParent(m.SelectedRevisions())
 		m.ensureCursorView = ensureView
-		return nil
+		return cmd
 	case intents.TargetWorkingCopy:
 		if idx := m.selectRevisionExact("@"); idx != -1 {
 			m.SetCursor(idx)
@@ -1511,10 +1519,38 @@ func (m *Model) rangeSelect(to int) {
 	m.SetCursor(to)
 }
 
-func (m *Model) jumpToParent(revisions jj.SelectedRevisions) {
+func (m *Model) jumpToParent(revisions jj.SelectedRevisions) tea.Cmd {
 	immediate, _ := m.context.RunCommandImmediate(jj.GetParent(revisions))
-	parentIndex := m.selectRevisionExact(string(immediate))
-	if parentIndex != -1 {
-		m.SetCursor(parentIndex)
+	return m.selectOrSeek(string(immediate))
+}
+
+// selectOrSeek moves the cursor to revision, or keeps streaming rows until it shows up.
+func (m *Model) selectOrSeek(revision string) tea.Cmd {
+	if revision == "" {
+		return nil
 	}
+	// shortcut: a revision outside the revset streams the whole log before giving up, add a cap if that proves too slow
+	return m.seekRow(m.selectStep(revision))
+}
+
+func (m *Model) selectStep(revision string) func(more bool) (tea.Cmd, bool) {
+	return func(more bool) (tea.Cmd, bool) {
+		if idx := m.selectRevisionExact(revision); idx != -1 {
+			m.SetCursor(idx)
+			return nil, true
+		}
+		return nil, !more
+	}
+}
+
+// seekRow runs step on the loaded rows and again after each batch until it
+// reports done; step must be done once more is false.
+func (m *Model) seekRow(step func(more bool) (tea.Cmd, bool)) tea.Cmd {
+	m.pendingSeek = nil
+	cmd, done := step(m.hasMore)
+	if done {
+		return cmd
+	}
+	m.pendingSeek = step
+	return tea.Batch(cmd, m.requestMoreRows(m.tag.Load()))
 }

@@ -1,6 +1,7 @@
 package revisions
 
 import (
+	"slices"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -8,6 +9,7 @@ import (
 	"github.com/idursun/jjui/internal/parser"
 	"github.com/idursun/jjui/internal/screen"
 	"github.com/idursun/jjui/internal/ui/common"
+	"github.com/idursun/jjui/internal/ui/graph"
 	"github.com/idursun/jjui/internal/ui/intents"
 	"github.com/idursun/jjui/internal/ui/layout"
 	"github.com/idursun/jjui/internal/ui/operations"
@@ -317,6 +319,27 @@ func TestModel_OpenSquashSelectsTargetRevision(t *testing.T) {
 		ChangeId: rows[1].Commit.GetChangeId(),
 		CommitId: rows[1].Commit.CommitId,
 	}), "opening squash should update the revisions selection snapshot")
+}
+
+func TestModel_JumpToParentStreamsUntilParentIsLoaded(t *testing.T) {
+	commandRunner := test.NewTestCommandRunner(t)
+	commandRunner.Expect(jj.GetParent(jj.NewSelectedRevisions(rows[0].Commit))).SetOutput([]byte("9"))
+	defer commandRunner.Verify()
+
+	ctx := test.NewTestContext(commandRunner)
+	model := New(ctx)
+	model.updateGraphRows(rows[:1], "a", true)
+	model.offScreenRows = slices.Clone(rows[:1]) // the batch handler appends; keep the shared fixture intact
+	model.hasMore = true
+	model.streamer = &graph.GraphStreamer{}
+
+	cmd := model.Update(intents.Navigate{Target: intents.TargetParent})
+	assert.NotNil(t, cmd, "should request more rows when the parent is not loaded yet")
+	assert.Equal(t, 0, model.Cursor())
+
+	model.Update(appendRowsBatchMsg{rows: rows[1:], hasMore: false})
+	assert.Equal(t, 1, model.Cursor(), "cursor should land on the parent once it is streamed in")
+	assert.Nil(t, model.pendingSeek)
 }
 
 func TestModel_UpdateRevisionsPreservesEvologSelection(t *testing.T) {
